@@ -9,6 +9,47 @@ namespace Parabox.Stl
 	public static class Exporter
 	{
 		/// <summary>
+		/// Export a hierarchy of GameObjects to string.
+		/// </summary>
+		/// <param name="binaryWriter"></param>
+		/// <param name="gameObjects"></param>
+		/// <param name="convertToRightHandedCoordinates"></param>
+		/// <returns></returns>
+		public static string ExportToString(GameObject[] gameObjects, bool convertToRightHandedCoordinates = true)
+		{
+			string result = string.Empty;
+			Mesh[] meshes = CreateWorldSpaceMeshesWithTransforms(gameObjects.Select(x => x.transform).ToArray());
+			if(meshes != null && meshes.Length > 0)
+			{
+				result = WriteString(meshes, convertToRightHandedCoordinates);
+			}
+
+			for(int i = 0; meshes != null && i < meshes.Length; i++)
+				Object.DestroyImmediate(meshes[i]);
+
+			return result;
+		}
+		
+		/// <summary>
+		/// Export a hierarchy of GameObjects to binary stream with file type.
+		/// </summary>
+		/// <param name="binaryWriter"></param>
+		/// <param name="gameObjects"></param>
+		/// <param name="type"></param>
+		/// <returns></returns>
+		public static void ExportToStream(BinaryWriter binaryWriter, GameObject[] gameObjects, FileType type)
+		{
+			Mesh[] meshes = CreateWorldSpaceMeshesWithTransforms(gameObjects.Select(x => x.transform).ToArray());
+			if(meshes != null && meshes.Length > 0)
+			{
+				WriteToBinaryStream(binaryWriter, meshes);
+			}
+
+			for(int i = 0; meshes != null && i < meshes.Length; i++)
+				Object.DestroyImmediate(meshes[i]);
+		}
+		
+		/// <summary>
 		/// Export a hierarchy of GameObjects to path with file type.
 		/// </summary>
 		/// <param name="path"></param>
@@ -129,63 +170,9 @@ namespace Parabox.Stl
 				{
 					case FileType.Binary:
 					{
-						// http://paulbourke.net/dataformats/stl/
-						// http://www.fabbers.com/tech/STL_Format
 						using (BinaryWriter writer = new BinaryWriter(File.Open(path, FileMode.Create), new ASCIIEncoding()))
 						{
-							// 80 byte header
-							writer.Write(new byte[80]);
-
-							uint totalTriangleCount = (uint) (meshes.Sum(x => x.triangles.Length) / 3);
-
-							// unsigned long facet count (4 bytes)
-							writer.Write( totalTriangleCount );
-
-							foreach(Mesh mesh in meshes)
-							{
-								Vector3[] v = mesh.vertices;
-								Vector3[] n = mesh.normals;
-
-								if(convertToRightHandedCoordinates)
-								{
-									for(int i = 0, c = v.Length; i < c; i++)
-									{
-										v[i] = Stl.ToCoordinateSpace(v[i], CoordinateSpace.Right);
-										n[i] = Stl.ToCoordinateSpace(n[i], CoordinateSpace.Right);
-									}
-								}
-
-								int[] t = mesh.triangles;
-								int triangleCount = t.Length;
-								if(convertToRightHandedCoordinates)
-									System.Array.Reverse(t);
-
-								for(int i = 0; i < triangleCount; i += 3)
-								{
-									int a = t[i], b = t[i+1], c = t[i+2];
-
-									Vector3 avg = AvgNrm(n[a], n[b], n[c]);
-
-									writer.Write(avg.x);
-									writer.Write(avg.y);
-									writer.Write(avg.z);
-
-									writer.Write(v[a].x);
-									writer.Write(v[a].y);
-									writer.Write(v[a].z);
-
-									writer.Write(v[b].x);
-									writer.Write(v[b].y);
-									writer.Write(v[b].z);
-
-									writer.Write(v[c].x);
-									writer.Write(v[c].y);
-									writer.Write(v[c].z);
-
-									// specification says attribute byte count should be set to 0.
-									writer.Write( (ushort)0 );
-								}
-							}
+							WriteToBinaryStream(writer, meshes, convertToRightHandedCoordinates);
 						}
 					}
 					break;
@@ -270,9 +257,69 @@ namespace Parabox.Stl
 			return sb.ToString();
 		}
 
+		public static void WriteToBinaryStream(BinaryWriter writer, IList<Mesh> meshes,
+			bool convertToRightHandedCoordinates = true)
+		{
+			// http://paulbourke.net/dataformats/stl/
+			// http://www.fabbers.com/tech/STL_Format
+			// 80 byte header
+			writer.Write(new byte[80]);
+
+			uint totalTriangleCount = (uint)(meshes.Sum(x => x.triangles.Length) / 3);
+
+			// unsigned long facet count (4 bytes)
+			writer.Write(totalTriangleCount);
+
+			foreach (Mesh mesh in meshes)
+			{
+				Vector3[] v = mesh.vertices;
+				Vector3[] n = mesh.normals;
+
+				if (convertToRightHandedCoordinates)
+				{
+					for (int i = 0, c = v.Length; i < c; i++)
+					{
+						v[i] = Stl.ToCoordinateSpace(v[i], CoordinateSpace.Right);
+						n[i] = Stl.ToCoordinateSpace(n[i], CoordinateSpace.Right);
+					}
+				}
+
+				int[] t = mesh.triangles;
+				int triangleCount = t.Length;
+				if (convertToRightHandedCoordinates)
+					System.Array.Reverse(t);
+
+				for (int i = 0; i < triangleCount; i += 3)
+				{
+					int a = t[i], b = t[i + 1], c = t[i + 2];
+
+					Vector3 avg = AvgNrm(n[a], n[b], n[c]);
+
+					writer.Write(avg.x);
+					writer.Write(avg.y);
+					writer.Write(avg.z);
+
+					writer.Write(v[a].x);
+					writer.Write(v[a].y);
+					writer.Write(v[a].z);
+
+					writer.Write(v[b].x);
+					writer.Write(v[b].y);
+					writer.Write(v[b].z);
+
+					writer.Write(v[c].x);
+					writer.Write(v[c].y);
+					writer.Write(v[c].z);
+
+					// specification says attribute byte count should be set to 0.
+					writer.Write((ushort)0);
+				}
+			}
+		}
+
 		/**
 		 *	Average of 3 vectors.
-		 */
+		*/
 		private static Vector3 AvgNrm(Vector3 a, Vector3 b, Vector3 c)
 		{
 			return new Vector3(
